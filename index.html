@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MEO資産度診断</title>
+<style>
+  /* 第一原理：バグの温床となるブラウザのデフォルト挙動をリセット */
+  * {
+    margin: 0; padding: 0; box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent; /* iOSの青いハイライトを禁止 */
+  }
+  :root {
+    --neon: #00d4ff; --neon2: #7b2fff; --gold: #c9a84c;
+    --bg: #000000; --white: #f0f0f0; --gray: #aaa;
+  }
+  body {
+    background: var(--bg); color: var(--white);
+    font-family: 'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;
+    min-height: 100vh; overflow-x: hidden;
+    line-height: 1.6;
+  }
+  button {
+    font-family: inherit; outline: none !important;
+    -webkit-appearance: none; border: none;
+  }
+
+  /* 画面制御 */
+  .screen { display: none; min-height: 100vh; padding: 40px 24px; flex-direction: column; align-items: center; justify-content: center; }
+  .screen.active { display: flex; animation: fadeIn 0.5s ease forwards; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* コンテンツ幅 */
+  .container { width: 100%; max-width: 600px; text-align: center; }
+
+  /* トップ画面 */
+  .top-img { width: 100%; max-width: 320px; border: 2px solid var(--gold); margin-bottom: 30px; }
+  .top-title { font-size: 28px; font-weight: 900; margin-bottom: 20px; line-height: 1.4; }
+  .top-title span { color: var(--neon); }
+  .start-btn {
+    padding: 20px 40px; border: 2px solid var(--neon); background: transparent;
+    color: var(--neon); font-size: 20px; font-weight: 700; border-radius: 4px; cursor: pointer;
+  }
+
+  /* クイズ画面 */
+  .progress-bar { width: 100%; height: 4px; background: #222; border-radius: 2px; margin-bottom: 40px; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--neon), var(--neon2)); width: 0%; transition: width 0.4s; }
+  
+  .q-text { font-size: 22px; font-weight: 700; text-align: left; margin-bottom: 32px; }
+  .choices { display: flex; flex-direction: column; gap: 16px; }
+  
+  .choice-btn {
+    padding: 20px; border: 1.5px solid #444; background: transparent;
+    color: var(--white); font-size: 16px; text-align: left; border-radius: 8px; cursor: pointer;
+    transition: all 0.2s; position: relative;
+  }
+  /* クリック時のネオンエフェクト */
+  .choice-btn.flash {
+    border-color: var(--neon) !important;
+    background: rgba(0, 212, 255, 0.1) !important;
+    box-shadow: 0 0 20px var(--neon) !important;
+  }
+
+  .hint-box {
+    margin-top: 30px; padding: 20px; border-left: 4px solid var(--gold);
+    background: rgba(201, 168, 76, 0.08); color: #e8d5a3; text-align: left; animation: fadeIn 0.4s ease;
+  }
+
+  /* ローディング */
+  #loading { position: fixed; inset: 0; background: #000; z-index: 1000; display: none; flex-direction: column; align-items: center; justify-content: center; }
+  .loader-text { color: var(--neon); font-size: 20px; margin-top: 20px; }
+
+  /* 結果画面 */
+  .result-rank { font-size: 60px; font-weight: 900; background: linear-gradient(135deg, var(--neon), var(--neon2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .result-img { width: 100%; max-width: 280px; border: 2px solid var(--gold); margin: 20px 0; }
+  .result-msg { text-align: left; background: #111; padding: 24px; border-radius: 12px; margin-bottom: 30px; }
+
+  /* LINE導線 */
+  .line-btn {
+    display: block; background: #06C755; color: #fff; text-decoration: none;
+    padding: 20px; border-radius: 50px; font-weight: 900; font-size: 18px; margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+
+<div id="top" class="screen active">
+  <div class="container">
+    <img src="top.png" class="top-img">
+    <h1 class="top-title">あなたのサロンは<br><span>AIに見えていますか？</span></h1>
+    <button class="start-btn" onclick="startQuiz()">診断スタート →</button>
+  </div>
+</div>
+
+<div id="quiz-screen" class="screen">
+  <div class="container" id="quiz-body">
+    </div>
+</div>
+
+<div id="loading">
+  <div style="width:60px; height:60px; border:4px solid #111; border-top-color:var(--neon); border-radius:50%; animation:spin 1s linear infinite;"></div>
+  <div class="loader-text">AIがサロンの構造を解析中...</div>
+</div>
+
+<div id="result-screen" class="screen">
+  <div class="container" id="result-body">
+    </div>
+</div>
+
+<script>
+const questions = [
+  { text: 'もし今日インスタが消えたら、来月の新規予約は「ゼロ」になる恐怖がありますか？', hint: 'SNSに依存しない集客構造が、これからの時代に必須のサロン資産です。', choices: [{t:'いいえ。他から予約が入る自信がある', p:10}, {t:'少し不安。半分以上がインスタ経由', p:5}, {t:'はい。ビジネスが止まってしまう', p:0}] },
+  { text: 'お店を表現する言葉に「癒やし」「隠れ家」など抽象的な言葉ばかり使っていませんか？', hint: 'AIは「感性」ではなく「名詞」で検索します。具体的な地域名と業種をセットに。', choices: [{t:'具体的な名詞を多用している', p:10}, {t:'つい雰囲気重視になってしまう', p:5}, {t:'雰囲気や感性だけで伝えている', p:0}] },
+  { text: 'あなたのお店のHPは、自分で管理している「独自ドメイン」ですか？', hint: '独自ドメインこそがデジタル上の「自社ビル」。予約サイトは「借り物」です。', choices: [{t:'はい。自分の土地を育てている', p:10}, {t:'無料ブログや予約サイトを使っている', p:5}, {t:'HP自体を持っていない', p:0}] },
+  { text: 'マップとHPの「住所・電話番号・営業時間」は1文字も狂わず一致していますか？', hint: 'AIは「NAP情報（名前・住所・電話）」の一致度で信頼性を判断します。', choices: [{t:'完璧に一致させている', p:10}, {t:'だいたい合っていると思う', p:5}, {t:'確認したことがない', p:0}] },
+  { text: 'Googleビジネスプロフィールの「最新情報」を、週に1回以上投稿していますか？', hint: '放置は「閉店」と同じシグナル。AIに「今日も元気に営業中」と伝えて。', choices: [{t:'はい。定期的に投稿している', p:10}, {t:'月に1〜2回程度', p:5}, {t:'放置している', p:0}] },
+  { text: '直近3ヶ月以内に、施術風景や写真を5枚以上アップしましたか？', hint: '写真はAIが専門性を判断する重要データ。最新の姿を見せ続けましょう。', choices: [{t:'はい。常に最新を届けている', p:10}, {t:'数枚は上げている', p:5}, {t:'写真はほとんど変えていない', p:0}] },
+  { text: '口コミに対して、プロの視点を交えた返信をしていますか？', hint: '返信の中の専門用語は、そのまま検索キーワード対策（MEO）になります。', choices: [{t:'はい。返信もアピールだと知っている', p:10}, {t:'簡単な返信のみ', p:5}, {t:'返信していない', p:0}] },
+  { text: 'スマホで自分のHPを開いたとき、3秒以内にすべて表示されますか？', hint: '表示速度は「おもてなし」。遅いだけでAIからの評価は下がります。', choices: [{t:'爆速。画像も最適化済み', p:10}, {t:'少し重いがなんとか開く', p:5}, {t:'かなり重い', p:0}] },
+  { text: 'インスタを「集客の柱」ではなく「カタログ」として割り切れていますか？', hint: '役割分担がSNS疲れを消す処方箋。カタログは整っていればOKです。', choices: [{t:'はい。役割を明確に分けている', p:10}, {t:'集客のために必死に更新している', p:5}, {t:'インスタさえ頑張れば良いと思う', p:0}] },
+  { text: '地域の他サイトからあなたのお店へのリンクがありますか？', hint: '被リンクは「地域の信頼の投票」。横のつながりがネット上の強さになります。', choices: [{t:'はい。地域で紹介されている', p:10}, {t:'数カ所ある', p:5}, {t:'どこからもリンクされていない', p:0}] },
+  { text: '「いい技術さえあれば、いつか見つけてもらえる」と思っていませんか？', hint: '技術は品質、MEOは存在証明。知られないのは、存在しないのと同じです。', choices: [{t:'いいえ。AIに伝える義務があると思う', p:10}, {t:'少しそう思いたい', p:5}, {t:'技術さえ磨けばAIは不要だと思う', p:0}] },
+  { text: '今の活動は、やればやるほど「来年の自分が楽になる資産」になっていますか？', hint: 'SNSはフロー（流れる）、MEOはストック（貯まる）。資産を築きましょう。', choices: [{t:'はい。仕組みが育っている', p:10}, {t:'少しずつは溜まっている', p:5}, {t:'全くない。毎日必死', p:0}] }
+];
+
+const ranks = [
+  { min: 110, rank: 'S', img: 'rank_s.png', title: '地域独占・レコメンドの覇者', msg: 'おめでとうございます！あなたは**「自動集客の仕組み」を完璧に手に入れた覇者です。**AIが寝ている間も、理想のお客様を連れ続けてくれています。' },
+  { min: 90, rank: 'A', img: 'rank_a.png', title: 'エリアの人気店', msg: '素晴らしい！地域の実力店として認知されています。あと一歩、ネット上の「お店の骨組み」を磨けば、Sランクも夢ではありません。' },
+  { min: 60, rank: 'B', img: 'rank_b.png', title: '脱・SNS労働予備軍', msg: '惜しい！設定はできていますが、AIへの「お店のアピール」が弱いです。「毎日のSNS投稿」という終わりのない労働から卒業するチャンスです。' },
+  { min: 30, rank: 'C', img: 'rank_c.png', title: '埋もれた実力店', msg: '技術はあるのに、AIには存在を知られていません。Googleマップという「デジタルの地図」に、あなたのお店を正しく載せましょう。' },
+  { min: 0, rank: 'D', img: 'rank_d.png', title: 'デジタル上の幽霊店', msg: '緊急事態！ネット上では存在しないも同然です。今すぐ「昔ながらのやり方」を捨てて、「未来に繋がるお店の設計」を始めてください。' }
+];
+
+let currentIdx = 0;
+let scores = [];
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+function startQuiz() {
+  currentIdx = 0; scores = [];
+  showScreen('quiz-screen');
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const container = document.getElementById('quiz-body');
+  container.innerHTML = ''; // 物理的リセット
+
+  const q = questions[currentIdx];
+  const progress = (currentIdx / questions.length) * 100;
+
+  const quizNode = document.createElement('div');
+  quizNode.innerHTML = `
+    <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+    <div class="q-text">${currentIdx + 1}. ${q.text}</div>
+    <div class="choices">
+      ${q.choices.map((c, i) => `<button class="choice-btn" onclick="handleAnswer(${c.p}, this)">${c.t}</button>`).join('')}
+    </div>
+    <div id="hint-area"></div>
+  `;
+  container.appendChild(quizNode);
+}
+
+function handleAnswer(p, btn) {
+  btn.blur();
+  const btns = document.querySelectorAll('.choice-btn');
+  btns.forEach(b => { b.disabled = true; b.style.pointerEvents = 'none'; });
+  
+  btn.classList.add('flash');
+  scores.push(p);
+
+  document.getElementById('hint-area').innerHTML = `<div class="hint-box">💡 <strong>ワンポイント解説</strong><br>${questions[currentIdx].hint}</div>`;
+
+  setTimeout(() => {
+    currentIdx++;
+    if (currentIdx < questions.length) {
+      renderQuestion();
+    } else {
+      showLoading();
+    }
+  }, 1800);
+}
+
+function showLoading() {
+  const loader = document.getElementById('loading');
+  loader.style.display = 'flex';
+  setTimeout(() => {
+    loader.style.display = 'none';
+    showResult();
+  }, 3000);
+}
+
+function showResult() {
+  const total = scores.reduce((a, b) => a + b, 0);
+  const rank = ranks.find(r => total >= r.min) || ranks[ranks.length-1];
+  
+  showScreen('result-screen');
+  const container = document.getElementById('result-body');
+  container.innerHTML = `
+    <div class="result-rank">RANK ${rank.rank}</div>
+    <div style="color:var(--gray)">スコア：${total} / 120点</div>
+    <img src="${rank.img}" class="result-img">
+    <h2 style="color:var(--gold); margin-bottom:20px;">${rank.title}</h2>
+    <div class="result-msg">${rank.msg}</div>
+    
+    <a href="https://lin.ee/woRCsiS" class="line-btn">LINE登録で解説特典を受け取る →</a>
+    <p style="font-size:14px; color:var(--neon); margin-bottom:30px;">2026年版『AIがお勧めしたくなるお店の作り方』スライド配布中</p>
+
+    <button onclick="location.reload()" style="background:transparent; color:var(--gray); border:1px solid #444; padding:10px 20px; border-radius:4px; cursor:pointer;">もう一度診断する</button>
+  `;
+}
+</script>
+<style> @keyframes spin { to { transform: rotate(360deg); } } </style>
+</body>
+</html>
